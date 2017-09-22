@@ -38,6 +38,8 @@ type MTProto struct {
 	appConfig Configuration
 
 	dclist map[int32]string
+
+	updatesChan chan TL
 }
 
 type packetToSend struct {
@@ -133,6 +135,7 @@ func NewMTProto(newSession bool, serverAddr string, useIPv6 bool, authkeyfile st
 
 	m := new(MTProto)
 	m.appConfig = appConfig
+	m.updatesChan = make(chan TL)
 
 	m.f, err = os.OpenFile(authkeyfile, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
@@ -239,6 +242,10 @@ func (m *MTProto) Connect() error {
 	return nil
 }
 
+func (m *MTProto) GetUpdatesChan() <-chan TL {
+	return m.updatesChan
+}
+
 func (m *MTProto) Disconnect() error {
 	// stop ping, send and read routine by closing channel stopRoutines
 	close(m.stopRoutines)
@@ -332,7 +339,13 @@ func (m *MTProto) readRoutine() {
 			if data == nil {
 				return
 			}
-			m.process(m.msgId, m.seqNo, data)
+			processed := m.process(m.msgId, m.seqNo, data)
+			if processed != nil {
+				select {
+				case m.updatesChan <- processed.(TL):
+				default:
+				}
+			}
 		}
 	}
 }
